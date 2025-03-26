@@ -1,0 +1,34 @@
+.PHONY: run build test generate docker-up docker-down
+
+# Default target
+all: generate build
+
+# Run the server
+run:
+	go run ./cmd/server
+
+# Build the server
+build:
+	go build -o bin/server ./cmd/server
+
+# Run tests
+test:
+	go test ./...
+
+# Generate GraphQL code
+generate:
+	go run github.com/99designs/gqlgen generate
+
+{{if eq .Config.Docker "Full (development + production)" "Development only"}}
+# Start Docker containers
+docker-up:
+	docker-compose up -d
+
+# Stop Docker containers
+docker-down:
+	docker-compose down
+{{end}}
+
+# Clean up
+clean:
+	rm -rf bin/

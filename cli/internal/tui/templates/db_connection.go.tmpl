@@ -1,0 +1,170 @@
+package models
+
+import (
+	"fmt"
+	"log"
+
+	"{{ .Config.ProjectName }}/config"
+{{if eq .Config.Database "PostgreSQL"}}
+  {{if eq .Config.ORM "GORM"}}
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+  {{else if eq .Config.ORM "SQLC"}}
+	"context"
+	"github.com/jackc/pgx/v5"
+  {{end}}
+
+// MigrateDatabase performs database migrations
+func MigrateDatabase() error {
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	// Add your models here to auto-migrate
+	return DB.AutoMigrate(&User{})
+  {{else if eq .Config.ORM "SQLC"}}
+	// Migrations are handled by external SQL files in db/migrations
+	log.Println("Database migrations should be run with SQL migration files")
+	return nil
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	// MongoDB doesn't need schema migrations, but you can set up indexes here
+	log.Println("Setting up MongoDB indexes")
+	// Example: DB.Collection("users").Indexes().CreateOne()
+	return nil
+{{end}}
+}
+{{else if eq .Config.Database "MongoDB"}}
+	"context"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"time"
+{{else if eq .Config.Database "MySQL"}}
+  {{if eq .Config.ORM "GORM"}}
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+  {{end}}
+{{else if eq .Config.Database "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+  {{end}}
+{{end}}
+)
+
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+var DB *gorm.DB
+  {{else if eq .Config.ORM "SQLC"}}
+var DBConn *pgx.Conn
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+var DB *mongo.Database
+var Client *mongo.Client
+{{end}}
+
+// ConnectDatabase initializes the database connection
+func ConnectDatabase(cfg *config.Config) error {
+{{if eq .Config.Database "PostgreSQL"}}
+  {{if eq .Config.ORM "GORM"}}
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		cfg.Database.Host,
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Name,
+		cfg.Database.Port,
+	)
+
+	var err error
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+	})
+
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+		return err
+	}
+
+	log.Println("Successfully connected to database")
+	return nil
+  {{else if eq .Config.ORM "SQLC"}}
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Host,
+		cfg.Database.Port,
+		cfg.Database.Name,
+	)
+
+	var err error
+	DBConn, err = pgx.Connect(context.Background(), dbURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+		return err
+	}
+
+	log.Println("Successfully connected to database")
+	return nil
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	clientOptions := options.Client().ApplyURI(cfg.Database.URI)
+	var err error
+	Client, err = mongo.Connect(ctx, clientOptions)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+		return err
+	}
+
+	// Ping the database
+	err = Client.Ping(ctx, nil)
+	if err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+		return err
+	}
+
+	DB = Client.Database(cfg.Database.Name)
+	log.Println("Successfully connected to MongoDB")
+	return nil
+{{else if eq .Config.Database "MySQL"}}
+  {{if eq .Config.ORM "GORM"}}
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Host,
+		cfg.Database.Port,
+		cfg.Database.Name,
+	)
+
+	var err error
+	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+	})
+
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+		return err
+	}
+
+	log.Println("Successfully connected to database")
+	return nil
+  {{end}}
+{{else if eq .Config.Database "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	var err error
+	DB, err = gorm.Open(sqlite.Open(cfg.Database.Name), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+	})
+
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+		return err
+	}
+
+	log.Println("Successfully connected to database")
+	return nil
+  {{end}}
+{{end}}

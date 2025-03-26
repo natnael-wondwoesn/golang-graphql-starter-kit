@@ -1,0 +1,152 @@
+package auth
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"{{ .Config.ProjectName }}/config"
+	"{{ .Config.ProjectName }}/internal/models"
+	"{{ .Config.ProjectName }}/internal/services"
+{{if eq .Config.Database "MongoDB"}}
+	"go.mongodb.org/mongo-driver/bson/primitive"
+{{end}}
+)
+
+type contextKey string
+
+const UserContextKey contextKey = "user"
+
+type AuthMiddleware struct {
+{{if eq .Config.Auth "JWT"}}
+	jwtService  *JWTService
+{{else if eq .Config.Auth "OAuth"}}
+	oauthService *OAuthService
+{{end}}
+	userService services.UserService
+}
+
+func NewAuthMiddleware(cfg *config.Config) *AuthMiddleware {
+	return &AuthMiddleware{
+{{if eq .Config.Auth "JWT"}}
+		jwtService:  NewJWTService(cfg),
+{{else if eq .Config.Auth "OAuth"}}
+		oauthService: NewOAuthService(cfg),
+{{end}}
+		userService: services.NewUserService(),
+	}
+}
+
+// GinMiddleware creates a Gin middleware for authentication
+func (a *AuthMiddleware) GinMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get the Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.Next()
+			return
+		}
+
+		// Check the format of the header
+		parts := strings.Split(authHeader, "Bearer ")
+		if len(parts) != 2 {
+			c.Next()
+			return
+		}
+
+		tokenString := parts[1]
+{{if eq .Config.Auth "JWT"}}
+		claims, err := a.jwtService.ValidateToken(tokenString)
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		// Get user from database
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM" "SQLC"}}
+		user, err := a.userService.GetByID(claims.UserID)
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+		objectID, err := primitive.ObjectIDFromHex(claims.UserID)
+		if err != nil {
+			c.Next()
+			return
+		}
+		user, err := a.userService.GetByID(objectID)
+{{end}}
+{{else if eq .Config.Auth "OAuth"}}
+		// Validate and get user from OAuth token
+		user, err := a.oauthService.ValidateToken(tokenString)
+{{end}}
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		// Put user in context
+		ctx := context.WithValue(c.Request.Context(), UserContextKey, user)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}
+
+// For http.Handler middleware (useful for GraphQL handlers)
+func (a *AuthMiddleware) HttpMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get the Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check the format of the header
+		parts := strings.Split(authHeader, "Bearer ")
+		if len(parts) != 2 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		tokenString := parts[1]
+{{if eq .Config.Auth "JWT"}}
+		claims, err := a.jwtService.ValidateToken(tokenString)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Get user from database
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM" "SQLC"}}
+		user, err := a.userService.GetByID(claims.UserID)
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+		objectID, err := primitive.ObjectIDFromHex(claims.UserID)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		user, err := a.userService.GetByID(objectID)
+{{end}}
+{{else if eq .Config.Auth "OAuth"}}
+		// Validate and get user from OAuth token
+		user, err := a.oauthService.ValidateToken(tokenString)
+{{end}}
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Put user in context
+		ctx := context.WithValue(r.Context(), UserContextKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// GetUserFromContext extracts the user from the context
+func GetUserFromContext(ctx context.Context) (*models.User, bool) {
+	user, ok := ctx.Value(UserContextKey).(*models.User)
+	return user, ok
+}

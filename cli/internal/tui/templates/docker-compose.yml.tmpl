@@ -1,0 +1,84 @@
+version: '3'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+{{if eq .Config.Database "PostgreSQL"}}
+      - postgres
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=postgres
+      - DATABASE_NAME={{ (LowerCase .Config.ProjectName) }}
+{{else if eq .Config.Database "MongoDB"}}
+      - mongo
+    environment:
+      - DATABASE_URI=mongodb://mongo:27017
+      - DATABASE_NAME={{ (LowerCase .Config.ProjectName) }}
+{{else if eq .Config.Database "MySQL"}}
+      - mysql
+    environment:
+      - DATABASE_HOST=mysql
+      - DATABASE_PORT=3306
+      - DATABASE_USER=root
+      - DATABASE_PASSWORD=root
+      - DATABASE_NAME={{ (LowerCase .Config.ProjectName) }}
+{{end}}
+{{if (HasFeature "Redis Caching")}}
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+{{end}}
+
+{{if eq .Config.Database "PostgreSQL"}}
+  postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB={{ (LowerCase .Config.ProjectName) }}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+{{else if eq .Config.Database "MongoDB"}}
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+{{else if eq .Config.Database "MySQL"}}
+  mysql:
+    image: mysql:latest
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE={{ (LowerCase .Config.ProjectName) }}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+{{end}}
+
+{{if (HasFeature "Redis Caching")}}
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+{{end}}
+
+volumes:
+{{if eq .Config.Database "PostgreSQL"}}
+  postgres_data:
+{{else if eq .Config.Database "MongoDB"}}
+  mongo_data:
+{{else if eq .Config.Database "MySQL"}}
+  mysql_data:
+{{end}}

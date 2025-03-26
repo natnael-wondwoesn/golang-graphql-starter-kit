@@ -1,0 +1,45 @@
+server:
+  port: "8080"
+  mode: "development"
+
+database:
+{{if eq .Config.Database "PostgreSQL"}}
+  host: "localhost"
+  port: "5432"
+  user: "postgres"
+  password: "postgres"
+  name: "{{ (LowerCase .Config.ProjectName) }}"
+{{else if eq .Config.Database "MongoDB"}}
+  uri: "mongodb://localhost:27017"
+  name: "{{ (LowerCase .Config.ProjectName) }}"
+{{else if eq .Config.Database "MySQL"}}
+  host: "localhost"
+  port: "3306"
+  user: "root"
+  password: "root"
+  name: "{{ (LowerCase .Config.ProjectName) }}"
+{{else if eq .Config.Database "SQLite"}}
+  name: "./{{ (LowerCase .Config.ProjectName) }}.db"
+{{end}}
+
+{{if eq .Config.Auth "JWT"}}
+jwt:
+  secret: "your-secret-key-change-in-production"
+  expiration: 24
+{{else if eq .Config.Auth "OAuth"}}
+oauth:
+  clientID: "your-client-id"
+  clientSecret: "your-client-secret"
+  redirectURL: "http://localhost:8080/auth/callback"
+  scopes:
+    - "profile"
+    - "email"
+{{end}}
+
+{{if (HasFeature "Redis Caching")}}
+redis:
+  host: "localhost"
+  port: "6379"
+  password: ""
+  db: 0
+{{end}}

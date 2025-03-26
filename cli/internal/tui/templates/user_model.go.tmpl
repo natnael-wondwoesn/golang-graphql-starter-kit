@@ -1,0 +1,99 @@
+package models
+
+import (
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"golang.org/x/crypto/bcrypt"
+	"time"
+{{end}}
+)
+
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+type User struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email" gorm:"uniqueIndex;not null"`
+	Password  string    `json:"-" gorm:"not null"` // Password is not exposed in JSON
+	Name      string    `json:"name"`
+	Role      string    `json:"role" gorm:"default:'user'"`
+}
+
+// BeforeSave hash the user password before saving to database
+func (u *User) BeforeSave(tx *gorm.DB) error {
+	if len(u.Password) > 0 {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		u.Password = string(hashedPassword)
+	}
+	return nil
+}
+
+// ComparePassword checks if the provided password matches the stored hashed password
+func (u *User) ComparePassword(password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
+}
+  {{else if eq .Config.ORM "SQLC"}}
+// This is just a representation of the user model - actual queries are in SQLC
+type User struct {
+	ID        int64     `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+	Password  string    `json:"-"` // Password is not exposed in JSON
+	Name      string    `json:"name"`
+	Role      string    `json:"role"`
+}
+
+// HashPassword creates a hashed password
+func HashPassword(password string) (string, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashedPassword), nil
+}
+
+// ComparePassword checks if the provided password matches the stored hashed password
+func ComparePassword(hashedPassword, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+}
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+type User struct {
+	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	CreatedAt time.Time          `json:"created_at" bson:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at" bson:"updated_at"`
+	Email     string             `json:"email" bson:"email"`
+	Password  string             `json:"-" bson:"password"` // Password is not exposed in JSON
+	Name      string             `json:"name" bson:"name"`
+	Role      string             `json:"role" bson:"role"`
+}
+
+// HashPassword creates a hashed password
+func (u *User) HashPassword() error {
+	if len(u.Password) > 0 {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		u.Password = string(hashedPassword)
+	}
+	return nil
+}
+
+// ComparePassword checks if the provided password matches the stored hashed password
+func (u *User) ComparePassword(password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
+}
+{{end}}

@@ -1,0 +1,209 @@
+package services
+
+import (
+	"errors"
+{{if eq .Config.Database "MongoDB"}}
+	"context"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"time"
+{{end}}
+
+	"{{ .Config.ProjectName }}/internal/models"
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	"gorm.io/gorm"
+  {{end}}
+{{end}}
+)
+
+type UserService interface {
+	Create(user *models.User) (*models.User, error)
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM" "SQLC"}}
+	GetByID(id uint) (*models.User, error)
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	GetByID(id primitive.ObjectID) (*models.User, error)
+{{end}}
+	GetByEmail(email string) (*models.User, error)
+	List() ([]*models.User, error)
+	Update(user *models.User) (*models.User, error)
+	Delete(id interface{}) error
+	Authenticate(email, password string) (*models.User, error)
+}
+
+type userService struct {
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	db *gorm.DB
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	collection *mongo.Collection
+{{end}}
+}
+
+func NewUserService() UserService {
+	return &userService{
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+		db: models.DB,
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+		collection: models.DB.Collection("users"),
+{{end}}
+	}
+}
+
+func (s *userService) Create(user *models.User) (*models.User, error) {
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	if err := s.db.Create(user).Error; err != nil {
+		return nil, err
+	}
+	return user, nil
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	// Set creation time
+	now := time.Now()
+	user.CreatedAt = now
+	user.UpdatedAt = now
+	
+	// Hash password
+	if err := user.HashPassword(); err != nil {
+		return nil, err
+	}
+	
+	// Insert user
+	result, err := s.collection.InsertOne(context.Background(), user)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Set ID
+	user.ID = result.InsertedID.(primitive.ObjectID)
+	return user, nil
+{{end}}
+}
+
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM" "SQLC"}}
+func (s *userService) GetByID(id uint) (*models.User, error) {
+	var user models.User
+  {{if eq .Config.ORM "GORM"}}
+	if err := s.db.First(&user, id).Error; err != nil {
+		return nil, err
+	}
+  {{end}}
+	return &user, nil
+}
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+func (s *userService) GetByID(id primitive.ObjectID) (*models.User, error) {
+	var user models.User
+	err := s.collection.FindOne(context.Background(), bson.M{"_id": id}).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+{{end}}
+
+func (s *userService) GetByEmail(email string) (*models.User, error) {
+	var user models.User
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
+		return nil, err
+	}
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	err := s.collection.FindOne(context.Background(), bson.M{"email": email}).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+{{end}}
+	return &user, nil
+}
+
+func (s *userService) List() ([]*models.User, error) {
+	var users []*models.User
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	if err := s.db.Find(&users).Error; err != nil {
+		return nil, err
+	}
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	cursor, err := s.collection.Find(context.Background(), bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+	
+	if err := cursor.All(context.Background(), &users); err != nil {
+		return nil, err
+	}
+{{end}}
+	return users, nil
+}
+
+func (s *userService) Update(user *models.User) (*models.User, error) {
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	if err := s.db.Save(user).Error; err != nil {
+		return nil, err
+	}
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	user.UpdatedAt = time.Now()
+	
+	update := bson.M{
+		"$set": bson.M{
+			"name":       user.Name,
+			"email":      user.Email,
+			"role":       user.Role,
+			"updated_at": user.UpdatedAt,
+		},
+	}
+	
+	_, err := s.collection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": user.ID},
+		update,
+	)
+	if err != nil {
+		return nil, err
+	}
+{{end}}
+	return user, nil
+}
+
+func (s *userService) Delete(id interface{}) error {
+{{if eq .Config.Database "PostgreSQL" "MySQL" "SQLite"}}
+  {{if eq .Config.ORM "GORM"}}
+	return s.db.Delete(&models.User{}, id).Error
+  {{end}}
+{{else if eq .Config.Database "MongoDB"}}
+	objectID, ok := id.(primitive.ObjectID)
+	if !ok {
+		return errors.New("invalid ID format")
+	}
+	
+	_, err := s.collection.DeleteOne(context.Background(), bson.M{"_id": objectID})
+	return err
+{{end}}
+}
+
+func (s *userService) Authenticate(email, password string) (*models.User, error) {
+	user, err := s.GetByEmail(email)
+	if err != nil {
+		return nil, errors.New("invalid email or password")
+	}
+
+	if err := user.ComparePassword(password); err != nil {
+		return nil, errors.New("invalid email or password")
+	}
+
+	return user, nil
+}

@@ -1,0 +1,85 @@
+package config
+
+import (
+	"github.com/spf13/viper"
+)
+
+type Config struct {
+	Server   ServerConfig
+	Database DatabaseConfig
+{{if eq .Config.Auth "JWT"}}
+	JWT      JWTConfig
+{{else if eq .Config.Auth "OAuth"}}
+	OAuth    OAuthConfig
+{{end}}
+{{if (HasFeature "Redis Caching")}}
+	Redis    RedisConfig
+{{end}}
+}
+
+type ServerConfig struct {
+	Port string
+	Mode string // development, production
+}
+
+type DatabaseConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Name     string
+{{if eq .Config.Database "MongoDB"}}
+	URI      string
+{{end}}
+}
+
+{{if eq .Config.Auth "JWT"}}
+type JWTConfig struct {
+	Secret     string
+	Expiration int // in hours
+}
+{{else if eq .Config.Auth "OAuth"}}
+type OAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Scopes       []string
+}
+{{end}}
+
+{{if (HasFeature "Redis Caching")}}
+type RedisConfig struct {
+	Host     string
+	Port     string
+	Password string
+	DB       int
+}
+{{end}}
+
+// LoadConfig reads configuration from file or environment variables
+func LoadConfig(path string) (*Config, error) {
+	viper.AddConfigPath(path)
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+
+	viper.AutomaticEnv() // override with env variables
+
+	// Set defaults
+	viper.SetDefault("server.port", "8080")
+	viper.SetDefault("server.mode", "development")
+{{if eq .Config.Auth "JWT"}}
+	viper.SetDefault("jwt.expiration", 24)
+{{end}}
+{{if (HasFeature "Redis Caching")}}
+	viper.SetDefault("redis.db", 0)
+{{end}}
+	
+	err := viper.ReadInConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	var config Config
+	err = viper.Unmarshal(&config)
+	return &config, err
+}

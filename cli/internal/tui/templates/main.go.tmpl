@@ -1,0 +1,89 @@
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/gin-gonic/gin"
+	
+	"{{ .Config.ProjectName }}/config"
+	"{{ .Config.ProjectName }}/graph/generated"
+	"{{ .Config.ProjectName }}/graph/resolvers"
+	"{{ .Config.ProjectName }}/internal/models"
+{{if ne .Config.Auth "None"}}
+	"{{ .Config.ProjectName }}/internal/auth"
+{{end}}
+{{if (HasFeature "Metrics & Monitoring")}}
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+{{end}}
+)
+
+func graphqlHandler() gin.HandlerFunc {
+	// Creates a GraphQL handler
+	h := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+		Resolvers: resolvers.NewResolver(),
+	}))
+
+	return func(c *gin.Context) {
+		h.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func playgroundHandler() gin.HandlerFunc {
+	h := playground.Handler("GraphQL Playground", "/query")
+	return func(c *gin.Context) {
+		h.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func main() {
+	// Load configuration
+	cfg, err := config.LoadConfig(".")
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
+	}
+
+	// Set Gin mode
+	if cfg.Server.Mode == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	// Connect to database
+	if err := models.ConnectDatabase(cfg); err != nil {
+		log.Fatalf("Error connecting to database: %v", err)
+	}
+
+	// Run migrations
+	if err := models.MigrateDatabase(); err != nil {
+		log.Fatalf("Error migrating database: %v", err)
+	}
+
+	// Initialize router
+	r := gin.Default()
+
+{{if ne .Config.Auth "None"}}
+	// Set up authentication middleware
+	authMiddleware := auth.NewAuthMiddleware(cfg)
+	r.Use(authMiddleware.GinMiddleware())
+{{end}}
+
+{{if (HasFeature "Metrics & Monitoring")}}
+	// Set up Prometheus metrics endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+{{end}}
+
+	// Routes
+	r.GET("/", playgroundHandler())
+	r.POST("/query", graphqlHandler())
+
+	// Start server
+	port := cfg.Server.Port
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Connect to http://localhost:%s/ for GraphQL playground", port)
+	log.Fatal(r.Run(":" + port))
+}
